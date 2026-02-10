@@ -1,9 +1,22 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from main import Rag_chain
+from ingestion import ingest_data
+import os
+import shutil
 
 
 app = FastAPI(title="RAG Chat API")
+
+# CORS middleware (optional - for browser access)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify exact origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Cache the chain globally
 _rag_chain = None
@@ -35,4 +48,46 @@ def ask(request: ChatRequest):
     rag = get_rag_chain()
     answer = rag.invoke(request.message)
     return {"answer": answer}
+
+
+@app.post("/upload")
+async def upload_documents(files: list[UploadFile] = File(...)):
+    """Upload and process documents for ingestion"""
+    print(f"📤 Received {len(files)} file(s) for upload")
+    documents_path = "documents/"
+    os.makedirs(documents_path, exist_ok=True)
+    
+    uploaded_files = []
+    
+    for file in files:
+        print(f"Processing file: {file.filename}")
+        if not file.filename.endswith((".pdf", ".txt", ".docx")):
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.filename}")
+        
+        # Save file
+        file_path = os.path.join(documents_path, file.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        uploaded_files.append(file.filename)
+        print(f"✅ Saved: {file.filename}")
+    
+    # Re-ingest all documents and rebuild vector store
+    try:
+        print("🔄 Starting document ingestion...")
+        ingest_data(documents_path)
+        print("✅ Document ingestion complete!")
+        
+        # Clear the cached RAG chain so it reloads with new documents
+        global _rag_chain
+        _rag_chain = None
+        print("🔄 RAG chain cache cleared")
+        
+        return {
+            "message": f"Successfully uploaded and processed {len(uploaded_files)} file(s)",
+            "files": uploaded_files
+        }
+    except Exception as e:
+        print(f"❌ Error during ingestion: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing documents: {str(e)}")
 

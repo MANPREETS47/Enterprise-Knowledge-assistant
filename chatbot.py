@@ -1,16 +1,68 @@
 import streamlit as st
-from main import Rag_chain
+import httpx
 from ingestion import ingest_data
 import os
 
 Documents_path = "documents/"
+API_URL = "http://localhost:8000"  # FastAPI server URL
 
-@st.cache_resource(show_spinner=False)
-def get_bot():
-    return Rag_chain()
+def ask_api(question: str) -> str:
+    """Send question to FastAPI backend and get answer"""
+    try:
+        response = httpx.post(
+            f"{API_URL}/ask",
+            json={"message": question},
+            timeout=60.0  # Increased timeout for LLM processing
+        )
+        response.raise_for_status()
+        return response.json()["answer"]
+    except httpx.ConnectError:
+        st.error(f"❌ Cannot connect to backend server at {API_URL}")
+        st.info("👉 Make sure FastAPI is running: `uvicorn api:app --reload`")
+        return "Backend server is not running. Please start it first."
+    except httpx.TimeoutException:
+        st.error("⏱️ Request timed out. The model might be taking too long.")
+        return "The request timed out. Please try again."
+    except httpx.HTTPError as e:
+        st.error(f"API Error: {str(e)}")
+        return "Sorry, I couldn't process your question. Please try again."
+    except Exception as e:
+        st.error(f"Unexpected error: {str(e)}")
+        return "An unexpected error occurred."
 
 
-bot = get_bot()
+def upload_files_to_api(files) -> bool:
+    """Upload files to FastAPI backend for processing"""
+    try:
+        files_data = [("files", (file.name, file.getvalue(), file.type)) for file in files]
+        response = httpx.post(
+            f"{API_URL}/upload",
+            files=files_data,
+            timeout=120.0  # Longer timeout for document processing
+        )
+        response.raise_for_status()
+        result = response.json()
+        st.info(f"✅ {result.get('message', 'Upload successful')}")
+        return True
+    except httpx.ConnectError:
+        st.error(f"❌ Cannot connect to backend server at {API_URL}")
+        st.info("👉 Make sure FastAPI is running: `uvicorn api:app --reload`")
+        return False
+    except httpx.TimeoutException:
+        st.error("⏱️ Upload timed out. Files might be too large or processing is slow.")
+        return False
+    except httpx.HTTPStatusError as e:
+        st.error(f"❌ Upload failed with status {e.response.status_code}")
+        try:
+            error_detail = e.response.json().get('detail', str(e))
+            st.error(f"Error details: {error_detail}")
+        except:
+            st.error(f"Error: {str(e)}")
+        return False
+    except Exception as e:
+        st.error(f"❌ Unexpected error during upload: {str(e)}")
+        st.exception(e)
+        return False
 
 st.set_page_config(page_title="Enterprise Knowledge Assistant", layout="wide")
 st.title("🧠 Enterprise Knowledge Assistant")
@@ -28,16 +80,25 @@ with st.container():
                 key="uploader",
             )
             if uploaded_files:
-                st.session_state["uploaded_files"] = uploaded_files
-                for uploaded_file in uploaded_files:
-                    file_path = os.path.join(Documents_path, uploaded_file.name)
-                    with open(file_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                ingest_data(Documents_path)
-                st.success(f"Added {len(uploaded_files)} file(s)")
-                st.cache_resource.clear()
+                # Check if these are new files (not already uploaded)
+                current_file_names = set([f.name for f in uploaded_files])
+                
+                if current_file_names != st.session_state.uploaded_file_names:
+                    # New files detected
+                    new_files = [f for f in uploaded_files if f.name not in st.session_state.uploaded_file_names]
+                    
+                    if new_files:
+                        with st.spinner(f"Uploading {len(new_files)} new document(s) to backend..."):
+                            if upload_files_to_api(new_files):
+                                # Update session state with uploaded file names
+                                st.session_state.uploaded_file_names.update([f.name for f in new_files])
+                            else:
+                                st.warning("⚠️ Upload failed. Please check the errors above and try again.")
 st.divider()
 
+# Initialize session state for uploaded files tracking
+if "uploaded_file_names" not in st.session_state:
+    st.session_state.uploaded_file_names = set()
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -58,7 +119,7 @@ if user_input := st.chat_input("Enter your question:"):
 
     # Get assistant answer
     with st.spinner("Thinking..."):
-        answer = bot.invoke(user_input)
+        answer = ask_api(user_input)
         with st.chat_message("assistant"):
             st.markdown(answer)
         
