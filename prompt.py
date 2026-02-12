@@ -1,5 +1,4 @@
 from langchain_core.prompts import ChatPromptTemplate
-from retriever import get_retriever
 
 
 rag_prompt = ChatPromptTemplate.from_messages(

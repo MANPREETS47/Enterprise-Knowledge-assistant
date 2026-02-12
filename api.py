@@ -19,6 +19,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup_event():
+    print("🚀 FastAPI app starting...")
+    print(f"✅ App is ready to receive requests")
+
 # Cache the chain globally
 _rag_chain = None
 
@@ -103,5 +108,11 @@ async def upload_documents(files: list[UploadFile] = File(...)):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    print(f"🚀 Starting server on 0.0.0.0:{port}")
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=port,
+        log_level="info"
+    )
 
