@@ -38,7 +38,8 @@ class ChatRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """Health check endpoint that doesn't require RAG chain"""
+    return {"status": "ok", "message": "API is running"}
 
 
 @app.post("/ask")
@@ -46,9 +47,16 @@ def ask(request: ChatRequest):
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     
-    rag = get_rag_chain()
-    answer = rag.invoke(request.message)
-    return {"answer": answer}
+    try:
+        rag = get_rag_chain()
+        answer = rag.invoke(request.message)
+        return {"answer": answer}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail="Vector store not initialized. Please upload documents first.")
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=f"Configuration error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
 @app.post("/upload")
