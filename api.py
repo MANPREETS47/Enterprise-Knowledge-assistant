@@ -93,6 +93,4 @@ async def upload_documents(files: list[UploadFile] = File(...)):
         raise HTTPException(status_code=500, detail=f"Error processing documents: {str(e)}")
 
 
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+
