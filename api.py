@@ -104,15 +104,3 @@ async def upload_documents(files: list[UploadFile] = File(...)):
     except Exception as e:
         print(f"❌ Error during ingestion: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing documents: {str(e)}")
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    print(f"🚀 Starting server on 0.0.0.0:{port}")
-    uvicorn.run(
-        app, 
-        host="0.0.0.0", 
-        port=port,
-        log_level="info"
-    )
-
