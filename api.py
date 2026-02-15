@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from ingestion import ingest_data
 import os
 import shutil
 import uvicorn
@@ -72,7 +71,7 @@ async def upload_documents(files: list[UploadFile] = File(...)):
     os.makedirs(documents_path, exist_ok=True)
     
     uploaded_files = []
-    
+    from ingestion import ingest_data
     for file in files:
         print(f"Processing file: {file.filename}")
         if not file.filename.endswith((".pdf", ".txt", ".docx")):
