@@ -2,34 +2,48 @@ import streamlit as st
 import httpx
 from ingestion import ingest_data
 import os
-import requests
 
 Documents_path = "documents/"
 API_URL = "https://enterprise-knowledge-assistant-5.onrender.com" or "http://localhost:8000"# FastAPI server URL
 
+def ask_api(question: str) -> str:
+    """Fallback: non-streaming call to the /ask endpoint."""
+    try:
+        response = httpx.post(
+            f"{API_URL}/ask",
+            json={"message": question},
+            timeout=180.0,
+        )
+        response.raise_for_status()
+        return response.json()["answer"]
+    except Exception as e:
+        return f"Error: {e}"
+
+
 def ask_api_stream(question: str):
     """Stream response from FastAPI backend token by token (generator)."""
     try:
-        with requests.post(
+        with httpx.stream(
+            "POST",
             f"{API_URL}/ask/stream",
             json={"message": question},
-            stream=True,
-            timeout=180,
+            timeout=180.0,
         ) as resp:
             resp.raise_for_status()
-            for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
-                if chunk:
-                    yield chunk
-    except requests.ConnectionError:
+            for text in resp.iter_text():
+                if text:
+                    yield text
+    except httpx.ConnectError:
         st.error(f"❌ Cannot connect to backend server at {API_URL}")
         st.info("👉 Make sure FastAPI is running: `uvicorn api:app --reload`")
         yield "Backend server is not running. Please start it first."
-    except requests.Timeout:
+    except httpx.TimeoutException:
         st.error("⏱️ Request timed out. The model might be taking too long.")
         yield "The request timed out. Please try again."
-    except requests.HTTPError as e:
-        st.error(f"API Error: {str(e)}")
-        yield "Sorry, I couldn't process your question. Please try again."
+    except httpx.HTTPStatusError as e:
+        # Streaming endpoint might not be deployed yet — fall back
+        st.warning("Streaming not available, falling back to standard response...")
+        yield ask_api(question)
     except Exception as e:
         st.error(f"Unexpected error: {str(e)}")
         yield "An unexpected error occurred."
