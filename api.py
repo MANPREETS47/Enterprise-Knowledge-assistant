@@ -27,14 +27,14 @@ _rag_chain = None
 async def startup_event():
     print("🚀 FastAPI app starting...")
     print("✅ API is ready to receive requests")
-    try:
-        global _rag_chain
-        print("🔥 Preloading RAG chain at startup...")
-        from main import Rag_chain
-        _rag_chain = Rag_chain()
-        print("✅ RAG preloaded successfully")
-    except Exception as e:
-        print(f"⚠️ RAG preload failed: {e}")
+    # try:
+    #     global _rag_chain
+    #     print("🔥 Preloading RAG chain at startup...")
+    #     from main import Rag_chain
+    #     _rag_chain = Rag_chain()
+    #     print("✅ RAG preloaded successfully")
+    # except Exception as e:
+    #     print(f"⚠️ RAG preload failed: {e}")
 
 
 # -------- RAG LOADER --------
