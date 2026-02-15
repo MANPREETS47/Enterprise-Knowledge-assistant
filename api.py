@@ -4,6 +4,7 @@ from pydantic import BaseModel
 import os
 import shutil
 import time
+import threading
 
 print("✅ API MODULE IMPORTED")
 
@@ -18,47 +19,64 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Cache the chain globally
+# -------- GLOBAL STATE --------
 _rag_chain = None
+_rag_loading = False   # prevents double loading
+
+
+# -------- BACKGROUND WARMUP --------
+def warm_rag_chain():
+    global _rag_chain, _rag_loading
+
+    if _rag_chain is not None or _rag_loading:
+        return
+
+    try:
+        _rag_loading = True
+        print("🔥 Background RAG warmup starting...")
+
+        from main import Rag_chain
+        _rag_chain = Rag_chain()
+
+        print("✅ Background RAG warmup completed")
+
+    except Exception as e:
+        print("⚠ Background warmup failed:", e)
+
+    finally:
+        _rag_loading = False
 
 
 # -------- STARTUP --------
 @app.on_event("startup")
 async def startup_event():
     print("🚀 FastAPI app starting...")
-    print("✅ API is ready to receive requests")
-    # try:
-    #     global _rag_chain
-    #     print("🔥 Preloading RAG chain at startup...")
-    #     from main import Rag_chain
-    #     _rag_chain = Rag_chain()
-    #     print("✅ RAG preloaded successfully")
-    # except Exception as e:
-    #     print(f"⚠️ RAG preload failed: {e}")
+
+    # Start background warmup (DOES NOT BLOCK PORT OPEN)
+    threading.Thread(target=warm_rag_chain, daemon=True).start()
 
 
-# -------- RAG LOADER --------
+# -------- SAFE GETTER --------
 def get_rag_chain():
-    global _rag_chain
+    global _rag_chain, _rag_loading
 
-    if _rag_chain is None:
-        print("⏳ STEP A: Starting RAG chain initialization...")
-        start = time.time()
+    # If already ready
+    if _rag_chain is not None:
+        return _rag_chain
 
-        try:
-            from main import Rag_chain
-            _rag_chain = Rag_chain()
+    # If not loading yet → start background load
+    if not _rag_loading:
+        threading.Thread(target=warm_rag_chain, daemon=True).start()
 
-            print(f"✅ STEP B: RAG chain loaded in {time.time() - start:.2f}s")
-
-        except Exception as e:
-            print(f"❌ RAG LOAD FAILED: {str(e)}")
-            raise e
+    # Wait until ready (safe wait loop)
+    print("⏳ Waiting for RAG chain to be ready...")
+    while _rag_chain is None:
+        time.sleep(1)
 
     return _rag_chain
 
 
-# -------- MODELS --------
+# -------- REQUEST MODEL --------
 class ChatRequest(BaseModel):
     message: str
 
@@ -70,39 +88,42 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "message": "API is running"}
+    return {
+        "status": "ok",
+        "rag_loaded": _rag_chain is not None,
+        "rag_loading": _rag_loading
+    }
 
 
 # -------- ASK --------
 @app.post("/ask")
 def ask(request: ChatRequest):
 
-    print("📩 STEP 1: Request received")
+    print("📩 Request received")
 
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
     try:
-        print("⏳ STEP 2: Getting RAG chain...")
         rag = get_rag_chain()
 
-        print("⏳ STEP 3: Running rag.invoke()...")
+        print("🧠 Running RAG inference...")
         start = time.time()
 
         answer = rag.invoke(request.message)
 
-        print(f"✅ STEP 4: Answer generated in {time.time() - start:.2f}s")
+        print(f"✅ Answer generated in {time.time() - start:.2f}s")
 
         return {"answer": answer}
 
     except FileNotFoundError:
         raise HTTPException(
             status_code=503,
-            detail="Vector store not initialized. Please upload documents first."
+            detail="Vector store not initialized. Upload docs first."
         )
 
     except Exception as e:
-        print(f"❌ ASK FAILED: {str(e)}")
+        print("❌ ASK FAILED:", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -110,7 +131,9 @@ def ask(request: ChatRequest):
 @app.post("/upload")
 async def upload_documents(files: list[UploadFile] = File(...)):
 
-    print(f"📤 Received {len(files)} file(s) for upload")
+    global _rag_chain
+
+    print(f"📤 Received {len(files)} file(s)")
 
     documents_path = "documents/"
     os.makedirs(documents_path, exist_ok=True)
@@ -120,11 +143,9 @@ async def upload_documents(files: list[UploadFile] = File(...)):
     try:
         from ingestion import ingest_data
     except Exception as e:
-        print(f"❌ INGEST IMPORT FAILED: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
     for file in files:
-        print(f"Processing file: {file.filename}")
 
         if not file.filename.endswith((".pdf", ".txt", ".docx")):
             raise HTTPException(
@@ -138,22 +159,21 @@ async def upload_documents(files: list[UploadFile] = File(...)):
             shutil.copyfileobj(file.file, buffer)
 
         uploaded_files.append(file.filename)
-        print(f"✅ Saved: {file.filename}")
 
     try:
-        print("🔄 Starting ingestion...")
+        print("🔄 Running ingestion...")
         ingest_data(documents_path)
-        print("✅ Ingestion complete")
+        print("✅ Ingestion done")
 
-        global _rag_chain
+        # Reset chain and rewarm in background
         _rag_chain = None
-        print("🔄 RAG cache cleared")
+        threading.Thread(target=warm_rag_chain, daemon=True).start()
 
         return {
-            "message": f"Processed {len(uploaded_files)} file(s)",
+            "message": f"Processed {len(uploaded_files)} files",
             "files": uploaded_files
         }
 
     except Exception as e:
-        print(f"❌ INGEST FAILED: {e}")
+        print("❌ INGEST FAILED:", e)
         raise HTTPException(status_code=500, detail=str(e))
