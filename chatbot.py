@@ -4,7 +4,7 @@ from ingestion import ingest_data
 import os
 
 Documents_path = "documents/"
-API_URL = "http://localhost:8000"  # FastAPI server URL
+API_URL = "http://localhost:8000" or "https://enterprise-knowledge-assistant-5.onrender.com"  # FastAPI server URL
 
 def ask_api(question: str) -> str:
     """Send question to FastAPI backend and get answer"""
