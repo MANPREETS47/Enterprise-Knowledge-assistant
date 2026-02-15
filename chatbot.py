@@ -12,7 +12,7 @@ def ask_api(question: str) -> str:
         response = httpx.post(
             f"{API_URL}/ask",
             json={"message": question},
-            timeout=60.0  # Increased timeout for LLM processing
+            timeout=180.0  # Increased timeout for LLM processing
         )
         response.raise_for_status()
         return response.json()["answer"]
