@@ -2,33 +2,37 @@ import streamlit as st
 import httpx
 from ingestion import ingest_data
 import os
+import requests
 
 Documents_path = "documents/"
 API_URL = "https://enterprise-knowledge-assistant-5.onrender.com" or "http://localhost:8000"# FastAPI server URL
 
-def ask_api(question: str) -> str:
-    """Send question to FastAPI backend and get answer"""
+def ask_api_stream(question: str):
+    """Stream response from FastAPI backend token by token (generator)."""
     try:
-        response = httpx.post(
-            f"{API_URL}/ask",
+        with requests.post(
+            f"{API_URL}/ask/stream",
             json={"message": question},
-            timeout=180.0  # Increased timeout for LLM processing
-        )
-        response.raise_for_status()
-        return response.json()["answer"]
-    except httpx.ConnectError:
+            stream=True,
+            timeout=180,
+        ) as resp:
+            resp.raise_for_status()
+            for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
+                if chunk:
+                    yield chunk
+    except requests.ConnectionError:
         st.error(f"❌ Cannot connect to backend server at {API_URL}")
         st.info("👉 Make sure FastAPI is running: `uvicorn api:app --reload`")
-        return "Backend server is not running. Please start it first."
-    except httpx.TimeoutException:
+        yield "Backend server is not running. Please start it first."
+    except requests.Timeout:
         st.error("⏱️ Request timed out. The model might be taking too long.")
-        return "The request timed out. Please try again."
-    except httpx.HTTPError as e:
+        yield "The request timed out. Please try again."
+    except requests.HTTPError as e:
         st.error(f"API Error: {str(e)}")
-        return "Sorry, I couldn't process your question. Please try again."
+        yield "Sorry, I couldn't process your question. Please try again."
     except Exception as e:
         st.error(f"Unexpected error: {str(e)}")
-        return "An unexpected error occurred."
+        yield "An unexpected error occurred."
 
 
 def upload_files_to_api(files) -> bool:
@@ -117,20 +121,14 @@ if user_input := st.chat_input("Enter your question:"):
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # Get assistant answer
-    with st.spinner("Thinking..."):
-        answer = ask_api(user_input)
-        with st.chat_message("assistant"):
-            st.markdown(answer)
-        
+    # Stream assistant answer
+    with st.chat_message("assistant"):
+        answer = st.write_stream(ask_api_stream(user_input))
 
     # Add assistant message
     st.session_state.messages.append(
         {"role": "assistant", "content": answer}
     )
-
-    # Force clean rerun
-    st.rerun()
 
 
 

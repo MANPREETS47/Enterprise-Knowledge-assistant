@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import os
 import shutil
@@ -125,6 +126,37 @@ def ask(request: ChatRequest):
     except Exception as e:
         print("❌ ASK FAILED:", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# -------- ASK (STREAMING) --------
+@app.post("/ask/stream")
+def ask_stream(request: ChatRequest):
+
+    print("📩 Streaming request received")
+
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    try:
+        rag = get_rag_chain()
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail="Vector store not initialized. Upload docs first."
+        )
+    except Exception as e:
+        print("❌ STREAM SETUP FAILED:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    def token_generator():
+        try:
+            for chunk in rag.stream(request.message):
+                yield chunk
+        except Exception as e:
+            print("❌ STREAM FAILED:", e)
+            yield f"\n[Error: {e}]"
+
+    return StreamingResponse(token_generator(), media_type="text/plain")
 
 
 # -------- UPLOAD --------
