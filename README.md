@@ -159,13 +159,6 @@ Modify [prompt.py](prompt.py) to adjust the system behavior and response style.
 - **FAISS index errors**: Delete `data/faiss_index/` and re-ingest documents
 - **Out of memory**: Reduce chunk size or use smaller embedding models
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## 🙏 Acknowledgments
 
@@ -182,4 +175,5 @@ For questions or support, please open an issue in the repository.
 **⭐ If you find this project helpful, please consider giving it a star!**
 
     
+
 
